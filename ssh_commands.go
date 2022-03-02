@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"regexp"
 	"runtime/debug"
@@ -55,6 +56,7 @@ const help = `
 
 var dateCommandPattern = regexp.MustCompile(`^date(.*)`)
 var dnsCommandPattern = regexp.MustCompile(`^dns (.*)`)
+var curlCommandPattern = regexp.MustCompile(`^curl (.*)`)
 var dcpCommandPattern = regexp.MustCompile(`^dcp (\d+) (\d+)`)
 var otpCommandPattern = regexp.MustCompile(`^otp (\d+) (\d+)`)
 var ledCommandPattern = regexp.MustCompile(`^led (white|blue) (on|off)`)
@@ -149,6 +151,19 @@ func dnsCommand(arg []string) (res string) {
 	}
 
 	return fmt.Sprintf("%+v", r)
+}
+
+func curlCommand(arg []string) (res string) {
+	resp, err := getHttpClient().Get(arg[0])
+	if err != nil {
+		return fmt.Sprintf("get error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		return fmt.Sprintf("GET %v: %v", arg[0], resp.Status)
+	}
+
+	b, _ := ioutil.ReadAll(resp.Body)
+	return fmt.Sprintf("%s", b)
 }
 
 func mmcCommand(arg []string) (res string) {
@@ -312,6 +327,8 @@ func handleCommand(term *term.Terminal, cmd string) (err error) {
 			res = dateCommand(m[1:])
 		} else if m := dnsCommandPattern.FindStringSubmatch(cmd); len(m) == 2 {
 			res = dnsCommand(m[1:])
+		} else if m := curlCommandPattern.FindStringSubmatch(cmd); len(m) == 2 {
+			res = curlCommand(m[1:])
 		} else if m := mmcCommandPattern.FindStringSubmatch(cmd); len(m) == 4 {
 			res = mmcCommand(m[1:])
 		} else if m := i2cCommandPattern.FindStringSubmatch(cmd); len(m) == 5 {

@@ -9,10 +9,14 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"net"
+	"net/http"
+	"strings"
 	"time"
 
-	"github.com/f-secure-foundry/imx-usbnet"
+	usbnet "github.com/f-secure-foundry/imx-usbnet"
 	"github.com/f-secure-foundry/tamago/soc/imx6/usb"
 
 	"github.com/miekg/dns"
@@ -92,7 +96,7 @@ func resolve(s string) (r *dns.Msg, rtt time.Duration, err error) {
 	msg.RecursionDesired = true
 
 	msg.Question = make([]dns.Question, 1)
-	msg.Question[0] = dns.Question{s, dns.TypeANY, dns.ClassINET}
+	msg.Question[0] = dns.Question{s, dns.TypeA, dns.ClassINET}
 
 	conn := new(dns.Conn)
 
@@ -103,4 +107,39 @@ func resolve(s string) (r *dns.Msg, rtt time.Duration, err error) {
 	c := new(dns.Client)
 
 	return c.ExchangeWithConn(msg, conn)
+}
+
+func getHttpClient() *http.Client {
+	netTransport := &http.Transport{
+		Dial: func(network, add string) (net.Conn, error) {
+			log.Printf("Dialling %v %v", network, add)
+			parts := strings.Split(add, ":")
+			if len(parts) != 2 {
+				// Dial is only called with the host:port (no scheme, no path)
+				return nil, fmt.Errorf("expected host:port but got %q", add)
+			}
+			host, port := parts[0], parts[1]
+			// Look up the hostname
+			r, _, err := resolve(host)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve host: %v", err)
+			}
+			if len(r.Answer) == 0 {
+				return nil, fmt.Errorf("failed to resolve A records for host %q", host)
+			}
+			var ip net.IP
+			if a, ok := r.Answer[0].(*dns.A); ok {
+				ip = a.A
+			} else {
+				return nil, fmt.Errorf("expected A record but got %T %q", r.Answer[0], r.Answer[0])
+			}
+			target := fmt.Sprintf("%s:%s", ip, port)
+			log.Printf("Dialling add %q (%s)", add, target)
+			return iface.DialTCP4(target)
+		},
+	}
+	c := http.Client{
+		Transport: netTransport,
+	}
+	return &c
 }
