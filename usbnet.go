@@ -9,6 +9,8 @@
 package main
 
 import (
+	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -90,20 +92,23 @@ func resolve(s string) (r *dns.Msg, rtt time.Duration, err error) {
 	if s[len(s)-1:] != "." {
 		s += "."
 	}
-
 	msg := new(dns.Msg)
 	msg.Id = dns.Id()
 	msg.RecursionDesired = true
 
-	msg.Question = make([]dns.Question, 1)
-	msg.Question[0] = dns.Question{s, dns.TypeA, dns.ClassINET}
+	msg.Question = []dns.Question{
+		{
+			Name:   s,
+			Qtype:  dns.TypeA,
+			Qclass: dns.ClassINET,
+		},
+	}
 
 	conn := new(dns.Conn)
 
 	if conn.Conn, err = iface.DialTCP4(resolver); err != nil {
 		return
 	}
-
 	c := new(dns.Client)
 
 	return c.ExchangeWithConn(msg, conn)
@@ -111,8 +116,7 @@ func resolve(s string) (r *dns.Msg, rtt time.Duration, err error) {
 
 func getHttpClient() *http.Client {
 	netTransport := &http.Transport{
-		Dial: func(network, add string) (net.Conn, error) {
-			log.Printf("Dialling %v %v", network, add)
+		DialContext: func(_ context.Context, network, add string) (net.Conn, error) {
 			parts := strings.Split(add, ":")
 			if len(parts) != 2 {
 				// Dial is only called with the host:port (no scheme, no path)
@@ -134,8 +138,10 @@ func getHttpClient() *http.Client {
 				return nil, fmt.Errorf("expected A record but got %T %q", r.Answer[0], r.Answer[0])
 			}
 			target := fmt.Sprintf("%s:%s", ip, port)
-			log.Printf("Dialling add %q (%s)", add, target)
 			return iface.DialTCP4(target)
+		},
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
 		},
 	}
 	c := http.Client{
